@@ -1,6 +1,6 @@
 # 🤖 Buzz Hermes Profile Setup
 
-> Connect a self-hosted **Hermes agent** (the kind running on a VPS) to a [Buzz](https://buzz.dev) (Nostr) community as a first-class member — with its own name, avatar, and access rules. One command, end to end. ✨
+> Connect a self-hosted **Hermes agent** (the kind running on a VPS) to a [Buzz](https://buzz.xyz) (Nostr) community as a first-class member — with its own name, avatar, and access rules. One command, end to end. ✨
 
 The manual path is a slog: no prebuilt CLI, a keypair encoding bug, Cloudflare blocking requests, and a "relay vs channel" membership trap that *silently* fails. This skill absorbs all of it so you don't have to think about it.
 
