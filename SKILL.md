@@ -100,11 +100,11 @@ already-joined key and skip the mint step.
 Export any subset of the env vars above and run the script — unset *required* vars become
 fatal errors (with a hint) when stdin is not a TTY, so CI/scripting can't hang. Example:
 ```bash
-export BUZZ_INSTALL_PROFILE=ratchet
-export BUZZ_INSTALL_RELAY=https://tuik.communities.buzz.xyz
+export BUZZ_INSTALL_PROFILE=my-agent
+export BUZZ_INSTALL_RELAY=https://my-community.communities.buzz.xyz
 export BUZZ_INSTALL_OWNER_NSEC=nsec1...
-export BUZZ_INSTALL_AGENT_NAME="Ratchet"
-export BUZZ_INSTALL_AGENT_AVATAR=https://example.com/ratchet.png
+export BUZZ_INSTALL_AGENT_NAME="My Agent"
+export BUZZ_INSTALL_AGENT_AVATAR=https://example.com/agent.png
 export BUZZ_INSTALL_AGENT_ABOUT="I automate the busywork."
 export BUZZ_INSTALL_ALLOW_ALL=false
 export BUZZ_INSTALL_ALLOWED_USERS="npub1abc...,npub1def..."
