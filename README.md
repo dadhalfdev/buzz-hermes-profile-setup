@@ -1,9 +1,14 @@
 # buzz-hermes-profile-setup
 
-One command connects a [Hermes](https://github.com/NousResearch/hermes-agent) agent profile
-to a [Buzz](https://buzz.dev) (Nostr) community — as a first-class agent with its own
-identity, avatar, and access rules. It builds the CLI, mints a dedicated keypair, claims
-relay membership, sets the profile, wires the gateway, restarts, and verifies.
+One command connects a **Hermes agent profile running on a VPS** (self-hosted Linux server,
+gateway up as an always-on background service) to a [Buzz](https://buzz.dev) (Nostr)
+community — as a first-class agent with its own identity, avatar, and access rules. It
+builds the CLI, mints a dedicated keypair, claims relay membership, sets the profile, wires
+the gateway, restarts, and verifies.
+
+**Scope:** this is for VPS / self-hosted Hermes profiles. It compiles the `buzz` CLI from
+source (`git` + `cargo`) and writes into `~/.hermes/profiles/<name>/` — both of which
+assume a real Linux host you can shell into. It is not for Hermes Desktop-only setups.
 
 This exists because the manual path is brutal: no prebuilt CLI, a bech32 keypair encoding
 bug, Cloudflare blocking `urllib`, a relay-vs-channel membership distinction that silently

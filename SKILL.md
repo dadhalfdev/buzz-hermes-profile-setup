@@ -1,9 +1,10 @@
 ---
 name: buzz-hermes-profile-setup
-description: Install a Hermes profile into a Buzz (Nostr) community.
+description: Install a VPS Hermes profile into a Buzz (Nostr) community.
 version: 1.0.0
-author: marco
+author: Marco Rodrigues (dadhalfdev), Hermes Agent
 license: MIT
+platforms: [linux]
 metadata:
   hermes:
     tags: [buzz, nostr, gateway, installer, agent-identity, onboarding]
@@ -12,18 +13,25 @@ metadata:
 
 # Buzz Hermes profile setup (the easy way)
 
-One command connects a Hermes profile to a Buzz community as a first-class agent: it
-builds the CLI, mints a dedicated identity, claims relay membership, sets the profile
-(name / avatar / bio / NIP-05), wires the gateway, restarts, and verifies — so a person
-doesn't have to fight through the 8 pitfalls that make the manual path brutal.
+Connects a **self-hosted Hermes agent profile — the kind running on a VPS**, with its
+gateway up as an always-on background service, to a Buzz community as a first-class agent.
+One command builds the CLI, mints a dedicated identity, claims relay membership, sets the
+profile (name / avatar / bio / NIP-05), wires the gateway, restarts, and verifies — so a
+person doesn't have to fight through the 8 pitfalls that make the manual path brutal.
 
 This is the **friendly front-door**. Deep reference on *why* each step works is in
 `references/buzz-internals.md` (relay vs channel membership, NIP-98 signing, self-echo,
 Cloudflare).
 
 ## When to use
-- Someone wants a Hermes agent up on a `*.communities.buzz.xyz` community.
+- Someone runs a Hermes agent profile on a **VPS or self-hosted Linux box** (the gateway
+  as a service) and wants it live on a `*.communities.buzz.xyz` community.
 - They describe the manual path as painful / want it "super easy".
+- The target box has a shell with `git` + `cargo` (the buzz CLI is built from source).
+
+Don't use for: Hermes Desktop-only setups, or hosts without shell/`cargo` access — the
+installer compiles the CLI and writes into `~/.hermes/profiles/<name>/`, both of which
+assume a real Linux host you can shell into.
 
 ## Quick start
 ```bash
