@@ -1,154 +1,175 @@
 ---
 name: buzz-hermes-profile-setup
-description: Install a VPS Hermes profile into a Buzz (Nostr) community.
-version: 1.0.0
+description: Connect a Hermes profile to a Buzz (Nostr) community.
+version: 2.0.0
 author: Marco Rodrigues (dadhalfdev), Hermes Agent
 license: MIT
-platforms: [linux]
+platforms: [linux, macos]
 metadata:
   hermes:
-    tags: [buzz, nostr, gateway, installer, agent-identity, onboarding]
-    related_skills: [hermes-multi-profile-setup, hermes-gateway-troubleshooting]
+    tags: [buzz, nostr, gateway, profiles, onboarding, installer, block]
+    category: devops
+    requires_toolsets: [terminal]
 ---
 
-# Buzz Hermes profile setup (the easy way)
+# Buzz Hermes Profile Setup Skill
 
-Connects a **self-hosted Hermes agent profile — the kind running on a VPS**, with its
-gateway up as an always-on background service, to a Buzz community as a first-class agent.
-One command builds the CLI, mints a dedicated identity, claims relay membership, sets the
-profile (name / avatar / bio / NIP-05), wires the gateway, restarts, and verifies — so a
-person doesn't have to fight through the 8 pitfalls that make the manual path brutal.
+Joins a self-hosted Hermes profile (one whose gateway runs as a background service on a
+Linux or macOS box) to a Buzz community as its own first-class agent identity. One script
+locates or builds the `buzz` CLI, mints a dedicated Nostr keypair, claims relay membership,
+sets the agent's profile, writes the Hermes config, restarts the gateway, and verifies the
+connection. It does not cover Buzz Desktop managed runtimes or the `buzz-acp` relay bridge;
+for those see the Hermes docs on Buzz integration.
 
-This is the **friendly front-door**. Deep reference on *why* each step works is in
-`references/buzz-internals.md` (relay vs channel membership, NIP-98 signing, self-echo,
-Cloudflare).
+## When to Use
 
-## When to use
-- Someone runs a Hermes agent profile on a **VPS or self-hosted Linux box** (the gateway
-  as a service) and wants it live on a `*.communities.buzz.xyz` community.
-- They describe the manual path as painful / want it "super easy".
-- The target box has a shell with `git` + `cargo` (the buzz CLI is built from source).
+- The user runs a Hermes profile on a server and wants it live in a
+  `*.communities.buzz.xyz` community as a member they can DM or `@`-mention.
+- The user has tried `hermes gateway setup` for Buzz and is stuck on membership, keys,
+  or a gateway that never reaches `connected`.
+- The user wants to re-run onboarding for an existing profile (the script is idempotent:
+  it reuses the key already in the profile's `.env` and skips the invite step).
 
-Don't use for: Hermes Desktop-only setups, or hosts without shell/`cargo` access — the
-installer compiles the CLI and writes into `~/.hermes/profiles/<name>/`, both of which
-assume a real Linux host you can shell into.
+Do not use for Buzz Desktop-only setups, or hosts without a shell you can reach through
+`terminal`.
 
-## Quick start
+## Prerequisites
+
+- A Hermes profile that already exists (`hermes profile create <name>`) with its gateway
+  installed as a service.
+- `git` and `cargo` on the host if the `buzz` CLI still needs to be built (first run only,
+  1-2 minutes). Alternatively set `BUZZ_INSTALL_CLI_PATH` to a prebuilt binary.
+- `curl` on the host (the relay is behind Cloudflare and rejects Python's `urllib`).
+- The community relay URL, e.g. `https://my-team.communities.buzz.xyz`.
+- For a first join: an **owner or admin key** of the community (nsec or hex). It signs the
+  invite once and is never written to disk. Not needed when re-running for a key that is
+  already a member.
+
+No Python packages are required; the script is standard library only.
+
+## How to Run
+
+Run the installer through `terminal`. It prompts for anything it cannot infer:
+
 ```bash
-uv run --with coincurve python3 \
-  ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py
+python3 ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py
 ```
-That's it. The script prompts for the few things it can't infer (community URL, an
-owner key to mint the invite, agent name/avatar) and does the rest silently. See
-"Non-interactive / env-var mode" below to drive it from a manifest instead.
 
-`uv run --with coincurve` auto-resolves the one non-stdlib dependency (BIP-340 Schnorr
-signing) into an ephemeral env — no global pip, no venv management, works under PEP 668.
+Preview the plan without changing anything:
 
-## Input manifest — everything that can be controlled
+```bash
+python3 ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py --dry-run
+```
 
-Each input has an env var, a prompt, and (where sensible) a default. The env var is the
-single source of truth; the prompt only fires when the env var is unset AND stdin is a TTY.
+Headless (no prompts; every required value must come from the environment):
 
-| Input | Env var | Required | Default | What it controls |
-|-------|---------|----------|---------|------------------|
-| Hermes profile name | `BUZZ_INSTALL_PROFILE` | yes | — | Which `~/.hermes/profiles/<name>` gets wired |
-| Community / relay URL | `BUZZ_INSTALL_RELAY` | yes | — | `https://<community>.communities.buzz.xyz` |
-| Owner nsec (mint only) | `BUZZ_INSTALL_OWNER_NSEC` | yes* | — | Transient; signs the invite, never written to disk |
-| Agent display name | `BUZZ_INSTALL_AGENT_NAME` | no | profile name | The name shown in the community |
-| Agent avatar | `BUZZ_INSTALL_AGENT_AVATAR` | no | — | Avatar image **URL** (not an upload — point at any hosted image) |
-| Agent bio / about | `BUZZ_INSTALL_AGENT_ABOUT` | no | — | Short description under the name |
-| NIP-05 identifier | `BUZZ_INSTALL_AGENT_NIP05` | no | — | Verified-handle style id (e.g. user@example.com) |
-| Presence | `BUZZ_INSTALL_PRESENCE` | no | online | `online` / `away` / `offline` |
-| Status line | `BUZZ_INSTALL_STATUS_TEXT` | no | — | NIP-38 "what I'm doing" line |
-| Status emoji | `BUZZ_INSTALL_STATUS_EMOJI` | no | — | Emoji shown before the status text |
-| Allow-all (community mode) | `BUZZ_INSTALL_ALLOW_ALL` | no | true | `false` = whitelist-only via `allowed_users` |
-| Allowed users | `BUZZ_INSTALL_ALLOWED_USERS` | no | — | Comma-sep npub/hex; who can talk when not allow-all |
-| Channels to watch | `BUZZ_INSTALL_CHANNELS` | no | (all joined) | Comma-sep channel UUIDs; empty = every joined channel |
-| Home channel | `BUZZ_INSTALL_HOME_CHANNEL` | no | first watched | Where cron/notify delivery lands |
-| Require mention | `BUZZ_INSTALL_REQUIRE_MENTION` | no | true | In channels, only reply when @-addressed (DMs always dispatch) |
-| Poll interval | `BUZZ_INSTALL_POLL_INTERVAL` | no | 4 | Seconds between relay polls |
-| CLI path | `BUZZ_INSTALL_CLI_PATH` | no | /root/bin/buzz | Where the buzz binary lives (built if missing) |
-| Soul / personality | `BUZZ_INSTALL_SOUL` | no | — | Path to a text file → written to the profile's `SOUL.md` |
-
-\* `OWNER_NSEC` is only needed on first install (to mint the invite). Re-runs detect an
-already-joined key and skip the mint step.
-
-### Access-control rules (the "who can talk to it" matrix)
-- **Community mode** (`allow_all=true`): any relay member can chat; the owner is admin.
-- **Whitelist mode** (`allow_all=false` + `allowed_users`): only listed npubs/hex keys.
-- `require_mention` applies to *channels only* — direct messages always dispatch.
-- Whoever owns the minting key is the community owner/admin, regardless of mode.
-
-## What the script does (numbered, logged)
-1. Resolve + validate inputs (env vars, then interactive prompts, then defaults).
-2. Ensure the `buzz` CLI exists — `git clone --depth 1 https://github.com/block/buzz.git`
-   + `cargo build --release -p buzz-cli` if `--cli-path` has no executable (1–2 min).
-3. Generate a **fresh** keypair (bech32 with `pad=True`, self-verifies the round-trip so a
-   silent wrong-key can't happen). Never reuses the owner's key.
-4. Check if the key is already a member (`buzz channels list` exit 0); if so skip mint/claim.
-5. Mint an invite (owner signs NIP-98) → accept join-policy if the community requires it
-   (handles `age_attestation_required`) → claim (agent key signs NIP-98). HTTP goes through
-   `curl` + browser UA (Cloudflare blocks `urllib`).
-6. `buzz users set-profile` — name, avatar, about, NIP-05; then presence + status.
-7. Write `BUZZ_PRIVATE_KEY` to `~/.hermes/profiles/<name>/.env` (chmod 600, never config.yaml).
-8. `hermes -p <name> config set` for every buzz key (relay, channels, access, behaviour).
-9. `hermes -p <name> gateway restart`.
-10. Verify `gateway_state.json` shows `"buzz":{"state":"connected"}`; print a test-DM hint.
-
-## Non-interactive / env-var mode (the manifest)
-Export any subset of the env vars above and run the script — unset *required* vars become
-fatal errors (with a hint) when stdin is not a TTY, so CI/scripting can't hang. Example:
 ```bash
 export BUZZ_INSTALL_PROFILE=my-agent
-export BUZZ_INSTALL_RELAY=https://my-community.communities.buzz.xyz
-export BUZZ_INSTALL_OWNER_NSEC=nsec1...
+export BUZZ_INSTALL_RELAY=https://my-team.communities.buzz.xyz
+export BUZZ_INSTALL_OWNER_NSEC=nsec1...           # first join only
 export BUZZ_INSTALL_AGENT_NAME="My Agent"
 export BUZZ_INSTALL_AGENT_AVATAR=https://example.com/agent.png
-export BUZZ_INSTALL_AGENT_ABOUT="I automate the busywork."
-export BUZZ_INSTALL_ALLOW_ALL=false
-export BUZZ_INSTALL_ALLOWED_USERS="npub1abc...,npub1def..."
-uv run --with coincurve python3 \
-  ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py
+python3 ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py --non-interactive
 ```
 
-## The 8 pitfalls this script absorbs (so you never have to)
-1. **No prebuilt CLI** — only desktop binaries on GitHub; must `cargo build -p buzz-cli`.
-2. **bech32 keypair bug** — convertbits 8→5 without `pad=True` drops the final bit → a
-   *different* nsec that round-trips to a different key. Script self-verifies.
-3. **Cloudflare 1010** — `urllib` is browser-signature-banned; every HTTP call shells out to `curl`.
-4. **Relay membership ≠ channel membership** — `channels add-member` returns `accepted:true`
-   but still 403s relay writes. Only the invite mint+claim grants real membership.
-5. **Self-echo** — reusing the owner's nsec makes the agent *be* the owner and ignore you.
-   Always a dedicated keypair.
-6. **Wrong "create agent" flow** — Buzz Desktop's agent wizard is for Buzz-native agents
-   (forces a goose/Codex harness pick). Hermes is a *plain relay member*, not that flow.
-7. **journalctl is a false negative** — the Buzz adapter logs to a different sink; verify
-   via `gateway_state.json`, never `journalctl -u hermes-gateway-<name>`.
-8. **No `--version` / JSON-in-JSON-out** — the CLI speaks JSON over stdio; `--help` works, not `--version`.
+Ask the user for the profile name, relay URL, owner key, and how open the agent should be
+before running. Never paste the owner key into chat logs; have the user export it in their
+shell or type it at the prompt (input is hidden).
 
-## Verification (always confirm before declaring success)
+## Quick Reference
+
+Every input has an env var. Prompts only fire when the env var is unset and stdin is a TTY.
+
+| Env var | Required | Default | Controls |
+|---|---|---|---|
+| `BUZZ_INSTALL_PROFILE` | yes | - | Which `~/.hermes/profiles/<name>` gets wired |
+| `BUZZ_INSTALL_RELAY` | yes | - | `https://<community>.communities.buzz.xyz` |
+| `BUZZ_INSTALL_OWNER_NSEC` | first join | - | Owner/admin key (nsec or hex) that mints the invite |
+| `BUZZ_INSTALL_AGENT_NAME` | no | profile name | Display name in the community |
+| `BUZZ_INSTALL_AGENT_AVATAR` | no | - | Avatar image URL (hosted, not uploaded) |
+| `BUZZ_INSTALL_AGENT_ABOUT` | no | - | Short bio |
+| `BUZZ_INSTALL_AGENT_NIP05` | no | - | NIP-05 identifier, e.g. `agent@example.com` |
+| `BUZZ_INSTALL_PRESENCE` | no | `online` | `online` / `away` / `offline` |
+| `BUZZ_INSTALL_STATUS_TEXT` / `_EMOJI` | no | - | NIP-38 status line and emoji |
+| `BUZZ_INSTALL_ALLOW_ALL` | no | `true` | `true` = any member may chat; `false` = whitelist |
+| `BUZZ_INSTALL_ALLOWED_USERS` | no | - | Comma-separated npub/hex for whitelist mode |
+| `BUZZ_INSTALL_CHANNELS` | no | all joined | Comma-separated channel UUIDs to watch |
+| `BUZZ_INSTALL_HOME_CHANNEL` | no | first watched | Where cron/notify deliveries land |
+| `BUZZ_INSTALL_REQUIRE_MENTION` | no | `true` | In channels, reply only when addressed (DMs always) |
+| `BUZZ_INSTALL_POLL_INTERVAL` | no | `4` | Seconds between relay polls |
+| `BUZZ_INSTALL_CLI_PATH` | no | `~/bin/buzz` | Where the `buzz` binary lives or gets built |
+| `BUZZ_INSTALL_SOUL` | no | - | Text file copied to the profile's `SOUL.md` |
+| `BUZZ_INSTALL_ROTATE_KEY` | no | `false` | Ignore the existing key and mint a new identity |
+
+Flags: `--dry-run` (print plan, change nothing), `--non-interactive` (never prompt).
+
+Access matrix: community mode (`ALLOW_ALL=true`) lets any relay member chat and only the
+owner is admin; whitelist mode (`ALLOW_ALL=false` + `ALLOWED_USERS`) restricts to listed
+keys; `REQUIRE_MENTION` applies to channels only, direct messages always dispatch.
+
+## Procedure
+
+1. Collect inputs from the user: profile name, relay URL, whether this is a first join
+   (owner key needed) or a re-run, agent name/avatar/bio, and the access mode.
+2. Run `--dry-run` through `terminal` and show the user the plan (identity reuse vs. new
+   key, access mode, CLI path). Adjust env vars if anything is off.
+3. Run the installer. Each step logs a `[tag]` line: `[cli]`, `[identity]`,
+   `[membership]`, `[profile]`, `[env]`, `[config]`, `[gateway]`, `[verify]`.
+4. When it exits `0` with `[verify] gateway_state.json: buzz connected`, read the SUMMARY
+   block and report the agent's `npub` and display name back to the user.
+5. If it exits `1`, jump to Pitfalls; the failing `[tag]` line names the stage.
+6. Ask the user to DM the agent from an account other than the owner key and confirm the
+   reply round-trips. That is the final proof.
+
+What the script writes:
+
+- `~/.hermes/profiles/<name>/.env` gains `BUZZ_PRIVATE_KEY=nsec1...` (mode 0600).
+- `hermes -p <name> config set` writes `gateway.platforms.buzz.enabled` plus `extra.relay_url`,
+  `channels`, `home_channel`, `poll_interval`, `cli_path`, `allowed_users`,
+  `require_mention`, `allow_all_users`, and the recommended display defaults
+  (`interim_assistant_messages: false`, `tool_progress: off`).
+- Optionally `SOUL.md` when `BUZZ_INSTALL_SOUL` points at a file.
+
+## Pitfalls
+
+1. **No prebuilt CLI.** The Buzz repo publishes desktop binaries only; the script runs
+   `cargo build --release -p buzz-cli` on first use. Without `cargo`, point
+   `BUZZ_INSTALL_CLI_PATH` at a binary you built elsewhere.
+2. **Relay membership is not channel membership.** `buzz channels add-member` answers
+   `accepted:true` yet the key still gets `403 relay_membership_required`. Only the invite
+   mint+claim grants real membership, which is what the script does.
+3. **Never reuse the owner's key for the agent.** The adapter suppresses self-echo by
+   pubkey, so an agent running as the owner ignores the owner. The script always uses a
+   dedicated keypair.
+4. **Buzz Desktop's "Create agent" wizard is the wrong flow.** It provisions Buzz-native
+   harness agents (goose/Codex). A Hermes gateway is a plain relay member.
+5. **`join_policy_required` on claim.** The community has a join policy; the script
+   accepts it automatically (`age_confirmed=true`, matching `policy_version`). A policy
+   change mid-run can race; re-run.
+6. **Gateway stays `disconnected`.** Usually the gateway restarted before `.env` was
+   written. Run `hermes -p <name> gateway restart` again and re-check.
+7. **journalctl shows nothing.** The Buzz adapter logs to a different sink than
+   Telegram/Slack; the truth is `gateway_state.json`, not `journalctl`.
+8. **Owner key format.** Both `nsec1...` and 64-char hex are accepted. Mixed-case bech32
+   is rejected by design.
+
+Deep protocol notes (NIP-98 signing, invite HTTP contract, Cloudflare, bech32 padding) live
+in `references/buzz-internals.md`.
+
+## Verification
+
+Read the profile's state file with `read_file`:
+
+```text
+~/.hermes/profiles/<name>/gateway_state.json
+```
+
+Success is `"platforms": {"buzz": {"state": "connected"}}`. For a membership check
+through `terminal`:
+
 ```bash
-cat ~/.hermes/profiles/<name>/gateway_state.json   # want "buzz":{"state":"connected"}
 set -a; . ~/.hermes/profiles/<name>/.env; set +a
-export BUZZ_RELAY_URL=<relay>
-/root/bin/buzz channels list                        # exit 0 = key is a valid member
-/root/bin/buzz users get                            # shows display_name / role / avatar
+BUZZ_RELAY_URL=https://my-team.communities.buzz.xyz ~/bin/buzz users get
 ```
-Final proof: send the agent a DM yourself and confirm the reply round-trips. If it doesn't,
-`references/buzz-internals.md` holds the deep debugging notes.
 
-## Troubleshooting
-- `claim` returns `join_policy_required` → the community has a join policy; confirm
-  `age_confirmed` / `policy_version` handled (script does this automatically, but a policy
-  change mid-run can race).
-- `403 relay_membership_required` after a "successful" claim → the invite was claimed by a
-  different key than the one in `.env`; regenerate-and-claim with a fresh pair.
-- Gateway state stays `disconnected` → `.env` written *after* the last restart; restart again.
-- `coincurve` import error → you ran the script without `uv run --with coincurve`.
-
-## Support files
-- `scripts/buzz_install.py` — the self-contained end-to-end installer (only dep: `coincurve`).
-- `references/buzz-internals.md` — the deep how-it-works notes (relay vs channel
-  membership, NIP-98 signing spec, self-echo, Cloudflare, keypair gotcha), for debugging
-  and for anyone who wants the standalone building blocks instead of the pipeline.
+Exit `0` with your agent's `display_name` and `role: member` means the identity is live.

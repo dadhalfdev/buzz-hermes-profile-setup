@@ -1,37 +1,38 @@
 # 🤖 Buzz Hermes Profile Setup
 
-> Connect a self-hosted **Hermes agent** (the kind running on a VPS) to a [Buzz](https://buzz.xyz) (Nostr) community as a first-class member — with its own name, avatar, and access rules. One command, end to end. ✨
+> Connect a self-hosted **Hermes agent profile** to a [Buzz](https://buzz.xyz) (Nostr) community as a first-class member — its own identity, name, avatar, and access rules. One command, end to end, **zero Python dependencies**. ✨
 
-The manual path is a slog: no prebuilt CLI, a keypair encoding bug, Cloudflare blocking requests, and a "relay vs channel" membership trap that *silently* fails. This skill absorbs all of it so you don't have to think about it.
+The manual path is a slog: no prebuilt CLI, a bech32 padding bug that silently corrupts keys, Cloudflare blocking Python's HTTP client, and a "relay vs channel membership" trap that fails without an error. This skill absorbs all of it.
+
+It is also submitted upstream as an official optional skill for [hermes-agent](https://github.com/NousResearch/hermes-agent) (`optional-skills/devops/buzz-hermes-profile-setup`), and follows the hermes-agent skill authoring standards.
 
 ---
 
 ## 🚀 What it does
 
-One command handles the whole pipeline:
+1. 🔧 Finds the `buzz` CLI (configured path → `PATH` → `~/bin/buzz`) or builds it from source (first run only)
+2. 🔑 Reuses the key already in the profile's `.env`, or mints a fresh Nostr keypair (round-trip verified)
+3. 🎟️ If the key is not a relay member yet: owner mints an invite, the join policy is accepted, the agent claims it
+4. 👤 Sets the agent's display name, avatar, bio, NIP-05, presence, and status
+5. 🔌 Writes `BUZZ_PRIVATE_KEY` to the profile `.env` (mode 0600) and every Buzz key via `hermes config set`
+6. ♻️ Restarts the gateway and verifies `gateway_state.json` reports `connected`
 
-1. 🔧 Builds the `buzz` CLI (first run only)
-2. 🔑 Mints a fresh keypair + relay membership for your agent
-3. 👤 Sets its name, avatar, bio, and NIP-05 handle
-4. 🔌 Wires up your Hermes gateway
-5. ✅ Restarts and verifies the connection
+Re-running is safe: an existing identity is reused and the invite step is skipped.
 
 ---
 
 ## 📦 Prerequisites
 
-- 🖥️ A **Linux VPS** where Hermes is already running (not for desktop-only setups)
-- 🦀 `git` + `cargo` (Rust) — used to build the CLI
-- ⚡ `uv` — pulls in the one helper library (`coincurve`)
-- 🔑 An **owner key** for the community, to mint the invite (used once, never saved)
+- 🖥️ A **Linux or macOS host** where a Hermes profile already exists (`hermes profile create <name>`) and its gateway runs as a service
+- 🦀 `git` + `cargo` if the CLI still needs building — or set `BUZZ_INSTALL_CLI_PATH` to a prebuilt binary
+- 🌐 `curl` (the relay is behind Cloudflare and rejects Python's `urllib`)
+- 🔑 For a **first join**: an owner/admin key of the community (nsec or hex). Used once to sign the invite; never written to disk
 
-> No `uv`? See `requirements.txt` — `coincurve` is the only dependency, install it however you like.
+Nothing to `pip install` — bech32 and BIP-340 Schnorr signing are implemented with the standard library.
 
 ---
 
 ## 🖥️ Install
-
-Clone the repo into your Hermes skills folder:
 
 ```bash
 mkdir -p ~/.hermes/skills/devops
@@ -39,43 +40,58 @@ git clone https://github.com/dadhalfdev/buzz-hermes-profile-setup.git \
   ~/.hermes/skills/devops/buzz-hermes-profile-setup
 ```
 
+Or, once merged upstream: `hermes skills install official/devops/buzz-hermes-profile-setup`.
+
 ---
 
 ## ▶️ Run
 
 ```bash
-uv run --with coincurve python3 \
-  ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py
+# interactive: prompts for anything it can't infer
+python3 ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py
+
+# preview the plan, change nothing
+python3 ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py --dry-run
 ```
 
-That's it. The script prompts for the few things it can't guess — profile name, community URL, an owner key, agent name, avatar — and handles the rest silently.
+Headless: every input has a `BUZZ_INSTALL_*` env var (full table in `SKILL.md`). Add `--non-interactive` to fail fast instead of prompting.
 
-Prefer to script it? Every input can be set as an env var (`BUZZ_INSTALL_*`), so it runs headless too. The full list lives in `SKILL.md`.
+```bash
+export BUZZ_INSTALL_PROFILE=my-agent
+export BUZZ_INSTALL_RELAY=https://my-team.communities.buzz.xyz
+export BUZZ_INSTALL_OWNER_NSEC=nsec1...        # first join only
+export BUZZ_INSTALL_AGENT_NAME="My Agent"
+export BUZZ_INSTALL_AGENT_AVATAR=https://example.com/agent.png
+python3 ~/.hermes/skills/devops/buzz-hermes-profile-setup/scripts/buzz_install.py --non-interactive
+```
 
 ---
 
 ## 🧠 What you can control
 
-- 👤 **Identity** — a dedicated keypair (auto-generated, never your own), display name, avatar URL, bio, NIP-05
-- 🔐 **Access** — open to everyone vs. an allow-list of specific users; whether the agent replies to everyone in channels or only when `@`-mentioned
-- 📢 **Channels** — which ones to watch, and where cron/notify messages land
+- 👤 **Identity** — dedicated keypair (never the owner's), display name, avatar URL, bio, NIP-05; `BUZZ_INSTALL_ROTATE_KEY=true` to mint a new one
+- 🔐 **Access** — community mode (any member) or a whitelist of npubs; reply to everyone in channels or only when `@`-mentioned (DMs always answer)
+- 📢 **Channels** — which to watch and where cron/notify deliveries land
 - 💬 **Presence** — online / away / offline, plus a status line and emoji
+- 🧬 **Personality** — a text file copied to the profile's `SOUL.md`
 
 ---
 
 ## ✅ Verify it worked
 
-Send your agent a direct message in the community. If it replies, you're live. 🎉
+Send your agent a DM from an account other than the owner key. If it replies, you're live. 🎉
 
-(Want the nerdy check? Peek at `~/.hermes/profiles/<name>/gateway_state.json` — you're after `"buzz":{"state":"connected"}`. More in `SKILL.md`.)
+The technical check is `~/.hermes/profiles/<name>/gateway_state.json` containing `"platforms": {"buzz": {"state": "connected"}}`.
 
 ---
 
-## 🤔 Stuck?
+## 🧪 Tests
 
-- The agent looks connected but won't reply → make sure you're messaging it from the right account (the owner's key is separate from the agent's).
-- `coincurve` import error → you ran the script without `uv run --with coincurve`.
-- Anything else → `SKILL.md` has a full troubleshooting section, and `references/buzz-internals.md` has the deep dive.
+```bash
+python3 -m pytest tests/ -q      # needs pytest + pyyaml; no network
+```
+
+Covers bech32 against NIP-19 vectors, BIP-340 against the official test vector, NIP-98 header construction, input resolution, `.env` handling, the invite flow with mocked HTTP, gateway verification, and `--dry-run`.
 
 ---
 
@@ -83,10 +99,10 @@ Send your agent a direct message in the community. If it replies, you're live. �
 
 ```
 buzz-hermes-profile-setup/
-├── SKILL.md                       # The skill: full options, pitfalls, troubleshooting
-├── scripts/buzz_install.py        # The one-shot installer
-├── references/buzz-internals.md   # How relay/membership/keys work (for debugging)
-├── requirements.txt               # The one dependency (coincurve)
+├── SKILL.md                       # The skill: inputs, procedure, pitfalls, verification
+├── scripts/buzz_install.py        # The one-shot installer (stdlib only)
+├── references/buzz-internals.md   # Relay/membership/NIP-98/bech32 notes for debugging
+├── tests/test_buzz_install.py     # Offline test suite
 └── README.md                      # You are here ✨
 ```
 
@@ -95,7 +111,3 @@ buzz-hermes-profile-setup/
 ## 📄 License
 
 MIT.
-
----
-
-Happy onboarding! 🚀🤖
